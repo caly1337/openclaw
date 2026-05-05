@@ -1080,7 +1080,6 @@ describe("loadChatHistory", () => {
     expect(request).toHaveBeenCalledWith("chat.history", {
       sessionKey: "main",
       limit: 200,
-      includeBlockedOriginalContent: true,
     });
     expect(state.chatMessages).toEqual([
       { role: "assistant", content: [{ type: "text", text: "visible answer" }] },
