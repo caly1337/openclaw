@@ -394,6 +394,72 @@ describe("gateway startup config validation", () => {
     });
   });
 
+  it("keeps plugin auto-enable runtime-only in Nix mode", async () => {
+    const sourceConfig = {
+      channels: {
+        telegram: {
+          botToken: "test-token",
+        },
+      },
+      gateway: { mode: "local" },
+    } as unknown as OpenClawConfig;
+    const autoEnabledConfig = {
+      ...sourceConfig,
+      plugins: {
+        allow: ["telegram"],
+      },
+    } as unknown as OpenClawConfig;
+    const snapshot = {
+      ...buildTestConfigSnapshot({
+        path: configPath,
+        exists: true,
+        raw: `${JSON.stringify(sourceConfig)}\n`,
+        parsed: sourceConfig,
+        valid: true,
+        config: sourceConfig,
+        issues: [],
+        legacyIssues: [],
+      }),
+      sourceConfig,
+      resolved: sourceConfig,
+      runtimeConfig: sourceConfig,
+      config: sourceConfig,
+    } satisfies ConfigFileSnapshot;
+    vi.mocked(configIo.readConfigFileSnapshotWithPluginMetadata).mockResolvedValueOnce({
+      snapshot,
+      pluginMetadataSnapshot,
+    });
+    applyPluginAutoEnable.mockReturnValueOnce({
+      config: autoEnabledConfig,
+      changes: ["Telegram configured, enabled automatically."],
+      autoEnabledReasons: {},
+    });
+    configMocks.isNixMode.value = true;
+    const log = { info: vi.fn(), warn: vi.fn() };
+
+    await expect(
+      loadGatewayStartupConfigSnapshot({
+        minimalTestGateway: false,
+        log,
+      }),
+    ).resolves.toEqual({
+      snapshot: {
+        ...snapshot,
+        runtimeConfig: autoEnabledConfig,
+        config: autoEnabledConfig,
+      },
+      wroteConfig: false,
+      pluginMetadataSnapshot,
+    });
+
+    expect(configMutate.replaceConfigFile).not.toHaveBeenCalled();
+    expect(configIo.readConfigFileSnapshotWithPluginMetadata).toHaveBeenCalledTimes(1);
+    expect(log.info).toHaveBeenCalledWith(
+      "gateway: auto-enabled plugins for this runtime without writing config in Nix mode:\n- Telegram configured, enabled automatically.",
+    );
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
   it("rejects invalid config before startup without automatic recovery", async () => {
     const invalidSnapshot = buildSnapshot({ valid: false, raw: "{ invalid json" });
     vi.mocked(configIo.readConfigFileSnapshot).mockResolvedValueOnce(invalidSnapshot);

@@ -99,6 +99,17 @@ export async function loadGatewayStartupConfigSnapshot(params: {
     };
   }
 
+  if (isNixMode) {
+    params.log.info(
+      `gateway: auto-enabled plugins for this runtime without writing config in Nix mode:\n${autoEnable.changes.map((entry) => `- ${entry}`).join("\n")}`,
+    );
+    return {
+      snapshot: withRuntimeConfig(configSnapshot, autoEnable.config),
+      wroteConfig,
+      ...(pluginMetadataSnapshot ? { pluginMetadataSnapshot } : {}),
+    };
+  }
+
   try {
     const { replaceConfigFile } = await import("../config/mutate.js");
     await replaceConfigFile({
@@ -123,6 +134,17 @@ export async function loadGatewayStartupConfigSnapshot(params: {
     snapshot: configSnapshot,
     wroteConfig,
     ...(pluginMetadataSnapshot ? { pluginMetadataSnapshot } : {}),
+  };
+}
+
+function withRuntimeConfig(
+  snapshot: ConfigFileSnapshot,
+  runtimeConfig: OpenClawConfig,
+): ConfigFileSnapshot {
+  return {
+    ...snapshot,
+    runtimeConfig,
+    config: runtimeConfig,
   };
 }
 
