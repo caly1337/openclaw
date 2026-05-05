@@ -313,6 +313,7 @@ export async function loadChatHistory(state: ChatState) {
         }>("chat.history", {
           sessionKey,
           limit: 200,
+          includeBlockedOriginalContent: true,
         });
         break;
       } catch (err) {
