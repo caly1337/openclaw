@@ -2257,29 +2257,7 @@ export const chatHandlers: GatewayRequestHandlers = {
       let appendedWebchatAgentMedia = false;
       let userTranscriptUpdatePromise: Promise<void> | null = null;
       let agentRunStarted = false;
-      let beforeAgentRunBlocked = false;
       const hasBeforeAgentRunGate = getGlobalHookRunner()?.hasHooks("before_agent_run") === true;
-      const beforeAgentRunBlockIdempotencyKey = `hook-block:before_agent_run:user:${clientRunId}`;
-      const hasPersistedBeforeAgentRunBlock = async () => {
-        if (!hasBeforeAgentRunGate) {
-          return false;
-        }
-        const { storePath: latestStorePath, entry: latestEntry } = loadSessionEntry(sessionKey);
-        const resolvedSessionId = latestEntry?.sessionId ?? backingSessionId;
-        if (!resolvedSessionId) {
-          return false;
-        }
-        const transcriptPath = resolveTranscriptPath({
-          sessionId: resolvedSessionId,
-          storePath: latestStorePath,
-          sessionFile: latestEntry?.sessionFile ?? entry?.sessionFile,
-          agentId,
-        });
-        if (!transcriptPath) {
-          return false;
-        }
-        return await transcriptHasIdempotencyKey(transcriptPath, beforeAgentRunBlockIdempotencyKey);
-      };
       const emitUserTranscriptUpdate = async () => {
         if (userTranscriptUpdatePromise) {
           await userTranscriptUpdatePromise;
@@ -2312,12 +2290,6 @@ export const chatHandlers: GatewayRequestHandlers = {
           });
         })();
         await userTranscriptUpdatePromise;
-      };
-      const emitUserTranscriptUpdateUnlessBeforeAgentRunBlocked = async () => {
-        if (beforeAgentRunBlocked || (await hasPersistedBeforeAgentRunBlock())) {
-          return;
-        }
-        await emitUserTranscriptUpdate();
       };
       let transcriptMediaRewriteDone = false;
       const rewriteUserTranscriptMedia = async () => {
@@ -2485,8 +2457,7 @@ export const chatHandlers: GatewayRequestHandlers = {
           onModelSelected,
         },
       })
-        .then(async (dispatchResult) => {
-          beforeAgentRunBlocked = dispatchResult.beforeAgentRunBlocked === true;
+        .then(async () => {
           await rewriteUserTranscriptMedia();
           // WebChat persistence has two owners. Agent runs persist model-visible turns
           // through Pi's SessionManager; this dispatcher only owns live delivery payloads.
@@ -2659,8 +2630,8 @@ export const chatHandlers: GatewayRequestHandlers = {
                 message,
               });
             }
-          } else {
-            await emitUserTranscriptUpdateUnlessBeforeAgentRunBlocked().catch((transcriptErr) => {
+          } else if (!hasBeforeAgentRunGate) {
+            await emitUserTranscriptUpdate().catch((transcriptErr) => {
               context.logGateway.warn(
                 `webchat user transcript update failed after agent run: ${formatForLog(transcriptErr)}`,
               );
@@ -2684,10 +2655,9 @@ export const chatHandlers: GatewayRequestHandlers = {
               `webchat transcript media rewrite failed after error: ${formatForLog(rewriteErr)}`,
             );
           });
-          const emitAfterError = !agentRunStarted
-            ? emitUserTranscriptUpdate()
-            : hasBeforeAgentRunGate
-              ? emitUserTranscriptUpdateUnlessBeforeAgentRunBlocked()
+          const emitAfterError =
+            agentRunStarted && hasBeforeAgentRunGate
+              ? Promise.resolve()
               : emitUserTranscriptUpdate();
           await emitAfterError.catch((transcriptErr) => {
             context.logGateway.warn(

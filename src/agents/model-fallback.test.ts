@@ -668,7 +668,7 @@ describe("runWithModelFallback", () => {
 
   it("keeps before_agent_run hook blocks out of empty-result fallback", () => {
     const runResult: EmbeddedPiRunResult = {
-      payloads: [],
+      payloads: [{ text: "Blocked by before-run policy.", isError: true }],
       meta: {
         durationMs: 1,
         livenessState: "blocked",
