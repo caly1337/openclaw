@@ -13,6 +13,25 @@ import {
   sendDiscordComponentMessageLazy,
 } from "./outbound-components.js";
 import { createDiscordPayloadSendContext } from "./outbound-send-context.js";
+import type { DiscordSendComponents } from "./send.shared.js";
+
+type OutboundPayload = Parameters<NonNullable<ChannelOutboundAdapter["sendPayload"]>>[0]["payload"];
+
+/**
+ * Extract raw Discord API components stored in channelData by the gateway send
+ * handler. These are passed through to the Discord API as-is (e.g. action rows
+ * with buttons for HITL approval flows).
+ */
+function resolveDiscordRawComponents(payload: OutboundPayload): DiscordSendComponents | undefined {
+  const discordData = payload.channelData?.discord as
+    | { rawComponents?: unknown }
+    | undefined;
+  const raw = discordData?.rawComponents;
+  if (Array.isArray(raw) && raw.length > 0) {
+    return raw as DiscordSendComponents;
+  }
+  return undefined;
+}
 
 export async function sendDiscordOutboundPayload(params: {
   ctx: Parameters<NonNullable<ChannelOutboundAdapter["sendPayload"]>>[0];
@@ -71,6 +90,44 @@ export async function sendDiscordOutboundPayload(params: {
 
   const componentSpec = await resolveDiscordComponentSpec(payload);
   if (!componentSpec) {
+    const rawComponents = resolveDiscordRawComponents(payload);
+    if (rawComponents) {
+      const result = await sendPayloadMediaSequenceOrFallback({
+        text: payload.text ?? "",
+        mediaUrls,
+        fallbackResult: { messageId: "", channelId: sendContext.target },
+        sendNoMedia: async () =>
+          await sendContext.withRetry(
+            async () =>
+              await sendContext.send(sendContext.target, payload.text ?? "", {
+                replyTo: sendContext.resolveReplyTo(),
+                accountId: ctx.accountId ?? undefined,
+                silent: ctx.silent ?? undefined,
+                cfg: ctx.cfg,
+                components: rawComponents,
+                ...sendContext.formatting,
+              }),
+          ),
+        send: async ({ text, mediaUrl, isFirst }) =>
+          await sendContext.withRetry(
+            async () =>
+              await sendContext.send(sendContext.target, text, {
+                verbose: false,
+                mediaUrl,
+                mediaAccess: ctx.mediaAccess,
+                mediaLocalRoots: ctx.mediaLocalRoots,
+                mediaReadFile: ctx.mediaReadFile,
+                replyTo: sendContext.resolveReplyTo(),
+                accountId: ctx.accountId ?? undefined,
+                silent: ctx.silent ?? undefined,
+                cfg: ctx.cfg,
+                ...(isFirst ? { components: rawComponents } : {}),
+                ...sendContext.formatting,
+              }),
+          ),
+      });
+      return attachChannelToResult("discord", result);
+    }
     return await sendTextMediaPayload({
       channel: "discord",
       ctx: {
