@@ -194,7 +194,7 @@ describe("buildWorkspaceSkillSnapshot", () => {
     );
 
     expect(snapshot.prompt).toContain("⚠️ Skills truncated");
-    expect(snapshot.prompt.length).toBeLessThan(2000);
+    expect(snapshot.prompt!.length).toBeLessThan(2000);
   });
 
   it("uses agents.list[].skills as a full replacement for inherited defaults", async () => {
